@@ -14,12 +14,9 @@ export default {
     try {
       // 邀请码
       const INVITE_CODE = "xiyue520";
-
-      // 初始化 KV 命名空间
-      const { USERS_KV, MESSAGES_KV, CONFIG_KV } = env;
       
-      // 检查 KV 命名空间是否配置正确
-      if (!USERS_KV || !MESSAGES_KV || !CONFIG_KV) {
+      // 检查 KV 命名空间
+      if (!env.USERS_KV || !env.MESSAGES_KV || !env.CONFIG_KV) {
         throw new Error("Missing KV namespace configuration");
       }
 
@@ -33,19 +30,19 @@ export default {
           return decodeURIComponent(escape(atob(encryptedMessage)));
         } catch (e) {
           console.error("解密失败:", e);
-          return encryptedMessage; // 如果解密失败，返回原文
+          return encryptedMessage;
         }
       };
 
       // 初始化管理员
       const initAdminUser = async () => {
-        const adminKey = `user:xiyue`;
-        const existingAdmin = await USERS_KV.get(adminKey, { type: 'json' });
+        const adminKey = "user:xiyue";
+        const existingAdmin = await env.USERS_KV.get(adminKey, { type: 'json' });
         
         if (!existingAdmin) {
           const admin = {
             username: "xiyue",
-            password: "20090327qi", // 实际生产中应哈希存储
+            password: "20090327qi",
             nickname: "管理员",
             avatar: "https://i.pravatar.cc/150?u=admin",
             isAdmin: true,
@@ -53,26 +50,24 @@ export default {
             isMuted: false
           };
           
-          await USERS_KV.put(adminKey, JSON.stringify(admin));
+          await env.USERS_KV.put(adminKey, JSON.stringify(admin));
           console.log("管理员用户 'xiyue' 已创建");
         }
       };
 
       // 初始化配置
       const initConfig = async () => {
-        // 初始化自动清除时间
-        const clearTimeKey = `config:clearTime`;
-        const existingClearTime = await CONFIG_KV.get(clearTimeKey);
+        const clearTimeKey = "config:clearTime";
+        const existingClearTime = await env.CONFIG_KV.get(clearTimeKey);
         if (!existingClearTime) {
-          await CONFIG_KV.put(clearTimeKey, "0");
+          await env.CONFIG_KV.put(clearTimeKey, "0");
           console.log("自动清除时间配置已初始化");
         }
         
-        // 初始化禁言列表
-        const muteListKey = `config:muteList`;
-        const existingMuteList = await CONFIG_KV.get(muteListKey, { type: 'json' });
+        const muteListKey = "config:muteList";
+        const existingMuteList = await env.CONFIG_KV.get(muteListKey, { type: 'json' });
         if (!existingMuteList) {
-          await CONFIG_KV.put(muteListKey, JSON.stringify([]));
+          await env.CONFIG_KV.put(muteListKey, JSON.stringify([]));
           console.log("禁言列表配置已初始化");
         }
       };
@@ -86,31 +81,21 @@ export default {
         return code && code.toLowerCase() === INVITE_CODE.toLowerCase();
       };
 
-      // 验证头像 URL 和大小 (通过 HEAD 请求)
+      // 验证头像
       const validateAvatar = async (avatarUrl) => {
         if (!avatarUrl) return false;
         
         try {
-          new URL(avatarUrl); // 验证 URL 格式
-          
+          new URL(avatarUrl);
           const headResponse = await fetch(avatarUrl, { method: 'HEAD' });
           const contentLength = headResponse.headers.get('content-length');
           
-          if (!contentLength) {
-            // 如果服务器不返回 Content-Length，无法判断大小，允许继续
-            console.warn("无法确定头像大小，服务器未返回 Content-Length 头");
-            return true;
-          }
-          
-          const sizeInBytes = parseInt(contentLength);
-          const sizeInMB = sizeInBytes / (1024 * 1024);
-          
-          if (sizeInMB > 2) {
-            return false; // 大于 2MB
+          if (contentLength && parseInt(contentLength) > 2 * 1024 * 1024) {
+            return false;
           }
           
           const contentType = headResponse.headers.get('content-type');
-          return contentType && contentType.startsWith('image/'); // 验证是否为图片
+          return contentType && contentType.startsWith('image/');
         } catch (error) {
           console.error("验证头像失败:", error);
           return false;
@@ -120,7 +105,6 @@ export default {
       // 路由处理
       const url = new URL(request.url);
       const path = url.pathname;
-      const method = request.method;
 
       // API 处理函数
       const apiHandlers = {
@@ -158,66 +142,17 @@ export default {
                   font-size: 2.5em;
                   margin-bottom: 10px;
                 }
-                .emoji {
-                  font-size: 2em;
-                  margin-right: 10px;
-                }
                 p {
                   margin: 15px 0;
                   line-height: 1.6;
-                }
-                .admin-info {
-                  background-color: #f8f9fa;
-                  padding: 15px;
-                  border-radius: 8px;
-                  margin: 20px 0;
-                  text-align: left;
-                }
-                .admin-info strong {
-                  color: #e63946;
-                }
-                ul {
-                  text-align: left;
-                  margin: 20px auto;
-                  padding-left: 20px;
-                }
-                li {
-                  margin: 10px 0;
-                  padding: 8px;
-                  background-color: #f1faee;
-                  border-radius: 6px;
-                }
-                .endpoint {
-                  background-color: #a8dadc;
-                  padding: 5px 10px;
-                  border-radius: 4px;
-                  font-weight: bold;
-                  font-family: monospace;
                 }
               </style>
             </head>
             <body>
               <div class="container">
-                <h1><span class="emoji">🎨</span>聊天室后端运行正常</h1>
+                <h1>🎨 聊天室后端运行正常</h1>
                 <p>这是 API 服务，请配合前端使用。</p>
-                <div class="admin-info">
-                  <strong>管理员账号：</strong>用户名 <span class="endpoint">xiyue</span>，密码 <span class="endpoint">20090327qi</span>
-                </div>
-                <p>请通过前端页面与以下接口交互:</p>
-                <ul>
-                  <li><span class="endpoint">POST /register</span> - 用户注册 (需邀请码)</li>
-                  <li><span class="endpoint">POST /login</span> - 用户登录</li>
-                  <li><span class="endpoint">GET /messages</span> - 获取消息</li>
-                  <li><span class="endpoint">POST /send</span> - 发送消息</li>
-                  <li><span class="endpoint">GET /user-list</span> - 获取用户列表 (管理员)</li>
-                  <li><span class="endpoint">POST /mute</span> - 禁言用户 (管理员)</li>
-                  <li><span class="endpoint">POST /unmute</span> - 解禁用户 (管理员)</li>
-                  <li><span class="endpoint">POST /remove</span> - 移除用户 (管理员)</li>
-                  <li><span class="endpoint">GET /get-clear-time</span> - 获取自动清除时间 (管理员)</li>
-                  <li><span class="endpoint">POST /set-clear-time</span> - 设置自动清除时间 (管理员)</li>
-                  <li><span class="endpoint">POST /clear-messages</span> - 清除所有消息 (管理员)</li>
-                  <li><span class="endpoint">GET /get-mute-list</span> - 获取禁言列表 (管理员)</li>
-                </ul>
+                <p><strong>管理员账号：</strong>用户名 <code>xiyue</code>，密码 <code>20090327qi</code></p>
               </div>
             </body>
             </html>
@@ -253,7 +188,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const existingUser = await USERS_KV.get(userKey, { type: 'json' });
+          const existingUser = await env.USERS_KV.get(userKey, { type: 'json' });
           if (existingUser) {
             return new Response(JSON.stringify({ error: '用户名已存在' }), { 
               status: 409,
@@ -263,7 +198,7 @@ export default {
           
           const newUser = {
             username,
-            password, // 实际应用应哈希存储
+            password,
             nickname,
             avatar,
             isAdmin: false,
@@ -271,7 +206,7 @@ export default {
             isMuted: false
           };
           
-          await USERS_KV.put(userKey, JSON.stringify(newUser));
+          await env.USERS_KV.put(userKey, JSON.stringify(newUser));
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
@@ -289,7 +224,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const user = await USERS_KV.get(userKey, { type: 'json' });
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
           if (!user || user.password !== password) {
             return new Response(JSON.stringify({ error: '用户名或密码错误' }), { 
@@ -307,31 +242,31 @@ export default {
         
         // 获取消息
         async '/messages'() {
-          // 获取所有消息键
-          let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
+          // 获取所有消息
+          let messages = [];
+          let cursor = null;
           
-          // 按时间排序（假设键包含时间戳）
-          const messages = [];
-          for (const key of messageKeys.keys) {
-            if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
-            const msg = await MESSAGES_KV.get(key.name, { type: 'json' });
-            if (msg) {
-              msg._id = key.name.replace('message:', '');
-              messages.push(msg);
+          do {
+            const list = await env.MESSAGES_KV.list({ prefix: 'message:', cursor });
+            cursor = list.cursor;
+            
+            for (const key of list.keys) {
+              const msg = await env.MESSAGES_KV.get(key.name, { type: 'json' });
+              if (msg) {
+                messages.push({
+                  ...msg,
+                  _id: key.name.replace('message:', ''),
+                  message: decryptMessage(msg.message)
+                });
+              }
             }
-          }
+          } while (cursor);
           
           // 按时间排序，取最近50条
           messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-          const recentMessages = messages.slice(-50);
+          messages = messages.slice(-50);
           
-          // 解密消息内容
-          const decryptedMessages = recentMessages.map(msg => ({
-            ...msg,
-            message: decryptMessage(msg.message)
-          }));
-          
-          return new Response(JSON.stringify(decryptedMessages), { 
+          return new Response(JSON.stringify(messages), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
@@ -348,7 +283,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const user = await USERS_KV.get(userKey, { type: 'json' });
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
           if (!user) {
             return new Response(JSON.stringify({ error: '用户不存在' }), { 
@@ -367,7 +302,7 @@ export default {
           // 加密消息
           const encryptedMessage = encryptMessage(message);
           
-          // 生成唯一消息ID (时间戳+随机数)
+          // 生成唯一消息ID
           const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
           const messageKey = `message:${messageId}`;
           
@@ -380,7 +315,7 @@ export default {
             timestamp: new Date().toISOString()
           };
           
-          await MESSAGES_KV.put(messageKey, JSON.stringify(newMessage));
+          await env.MESSAGES_KV.put(messageKey, JSON.stringify(newMessage));
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -389,16 +324,21 @@ export default {
         
         // 获取用户列表
         async '/user-list'() {
-          let userKeys = await USERS_KV.list({ prefix: 'user:' });
-          const users = [];
+          let users = [];
+          let cursor = null;
           
-          for (const key of userKeys.keys) {
-            const user = await USERS_KV.get(key.name, { type: 'json' });
-            if (user) {
-              const { password, ...userWithoutPassword } = user;
-              users.push(userWithoutPassword);
+          do {
+            const list = await env.USERS_KV.list({ prefix: 'user:', cursor });
+            cursor = list.cursor;
+            
+            for (const key of list.keys) {
+              const user = await env.USERS_KV.get(key.name, { type: 'json' });
+              if (user) {
+                const { password, ...userWithoutPassword } = user;
+                users.push(userWithoutPassword);
+              }
             }
-          }
+          } while (cursor);
           
           return new Response(JSON.stringify(users), { 
             headers: { 'Content-Type': 'application/json' }
@@ -407,8 +347,8 @@ export default {
         
         // 获取自动清除时间
         async '/get-clear-time'() {
-          const clearTimeKey = `config:clearTime`;
-          const clearTime = await CONFIG_KV.get(clearTimeKey) || "0";
+          const clearTimeKey = "config:clearTime";
+          const clearTime = await env.CONFIG_KV.get(clearTimeKey) || "0";
           
           return new Response(JSON.stringify({ time: parseInt(clearTime) }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -426,8 +366,8 @@ export default {
             });
           }
           
-          const clearTimeKey = `config:clearTime`;
-          await CONFIG_KV.put(clearTimeKey, time.toString());
+          const clearTimeKey = "config:clearTime";
+          await env.CONFIG_KV.put(clearTimeKey, time.toString());
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -436,17 +376,16 @@ export default {
         
         // 清除所有消息
         async '/clear-messages'() {
-          // 获取所有消息键
-          let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
+          let cursor = null;
           
-          // 删除所有消息
-          const deletePromises = [];
-          for (const key of messageKeys.keys) {
-            if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
-            deletePromises.push(MESSAGES_KV.delete(key.name));
-          }
-          
-          await Promise.all(deletePromises);
+          do {
+            const list = await env.MESSAGES_KV.list({ prefix: 'message:', cursor });
+            cursor = list.cursor;
+            
+            for (const key of list.keys) {
+              await env.MESSAGES_KV.delete(key.name);
+            }
+          } while (cursor);
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -465,7 +404,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const user = await USERS_KV.get(userKey, { type: 'json' });
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
           if (!user) {
             return new Response(JSON.stringify({ error: '用户不存在' }), { 
@@ -482,17 +421,17 @@ export default {
             });
           }
           
-          await USERS_KV.put(userKey, JSON.stringify({ 
+          await env.USERS_KV.put(userKey, JSON.stringify({ 
             ...user, 
             isMuted: true 
           }));
           
           // 更新禁言列表
-          const muteListKey = `config:muteList`;
-          let muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          const muteListKey = "config:muteList";
+          let muteList = await env.CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
           if (!muteList.includes(username)) {
             muteList.push(username);
-            await CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
+            await env.CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
           }
           
           return new Response(JSON.stringify({ success: true }), { 
@@ -512,7 +451,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const user = await USERS_KV.get(userKey, { type: 'json' });
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
           if (!user) {
             return new Response(JSON.stringify({ error: '用户不存在' }), { 
@@ -521,16 +460,16 @@ export default {
             });
           }
           
-          await USERS_KV.put(userKey, JSON.stringify({ 
+          await env.USERS_KV.put(userKey, JSON.stringify({ 
             ...user, 
             isMuted: false 
           }));
           
           // 更新禁言列表
-          const muteListKey = `config:muteList`;
-          let muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          const muteListKey = "config:muteList";
+          let muteList = await env.CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
           muteList = muteList.filter(u => u !== username);
-          await CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
+          await env.CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -539,8 +478,8 @@ export default {
         
         // 获取禁言列表
         async '/get-mute-list'() {
-          const muteListKey = `config:muteList`;
-          const muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          const muteListKey = "config:muteList";
+          const muteList = await env.CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
           
           return new Response(JSON.stringify({ 
             users: muteList 
@@ -561,7 +500,7 @@ export default {
           }
           
           const userKey = `user:${username}`;
-          const user = await USERS_KV.get(userKey, { type: 'json' });
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
           if (!user) {
             return new Response(JSON.stringify({ error: '用户不存在' }), { 
@@ -578,7 +517,7 @@ export default {
             });
           }
           
-          await USERS_KV.delete(userKey);
+          await env.USERS_KV.delete(userKey);
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -624,34 +563,33 @@ export default {
 
   async scheduled(event, env, ctx) {
     try {
-      const { MESSAGES_KV, CONFIG_KV } = env;
-      
-      if (!MESSAGES_KV || !CONFIG_KV) {
+      if (!env.MESSAGES_KV || !env.CONFIG_KV) {
         console.error("定时任务: 缺少 KV 命名空间配置");
         return;
       }
 
       // 获取自动清除时间
-      const clearTimeKey = `config:clearTime`;
-      const clearTime = parseInt(await CONFIG_KV.get(clearTimeKey) || "0");
+      const clearTimeKey = "config:clearTime";
+      const clearTime = parseInt(await env.CONFIG_KV.get(clearTimeKey) || "0");
       
       if (clearTime > 0) {
         const cutoffDate = new Date(Date.now() - clearTime);
         
-        // 获取所有消息
-        let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
-        
-        // 删除过期消息
+        let cursor = null;
         let deletedCount = 0;
-        for (const key of messageKeys.keys) {
-          if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
+        
+        do {
+          const list = await env.MESSAGES_KV.list({ prefix: 'message:', cursor });
+          cursor = list.cursor;
           
-          const msg = await MESSAGES_KV.get(key.name, { type: 'json' });
-          if (msg && new Date(msg.timestamp) < cutoffDate) {
-            await MESSAGES_KV.delete(key.name);
-            deletedCount++;
+          for (const key of list.keys) {
+            const msg = await env.MESSAGES_KV.get(key.name, { type: 'json' });
+            if (msg && new Date(msg.timestamp) < cutoffDate) {
+              await env.MESSAGES_KV.delete(key.name);
+              deletedCount++;
+            }
           }
-        }
+        } while (cursor);
         
         console.log(`定时任务: 已清除 ${cutoffDate.toISOString()} 之前的消息，共 ${deletedCount} 条`);
       } else {

@@ -1,0 +1,9 @@
+{
+  "name": "monet-chat-api",
+  "version": "1.0.0",
+  "description": "A chat room API using Cloudflare Workers and KV",
+  "main": "workers.js",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  }
+}

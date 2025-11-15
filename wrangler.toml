@@ -2,19 +2,16 @@ name = "monet-chat-api"
 main = "workers.js"
 compatibility_date = "2025-11-15"
 
-# KV 命名空间配置
+# KV 命名空间配置 - 无需提供ID，部署时会自动创建
 [[kv_namespaces]]
 binding = "USERS_KV"
-id = "" # 部署时会自动生成
 
 [[kv_namespaces]]
 binding = "MESSAGES_KV"
-id = "" # 部署时会自动生成
 
 [[kv_namespaces]]
 binding = "CONFIG_KV"
-id = "" # 部署时会自动生成
 
 # 定时触发器配置 - 每小时检查一次
 [[triggers]]
-crons = ["0 * * * *"] # 每小时执行一次
+crons = ["0 * * * *"]  # 每小时执行一次
