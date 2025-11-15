@@ -5,3 +5,7 @@ compatibility_date = "2025-11-15"
 # 定时触发器配置 - 每小时检查一次
 [[triggers.crons]]
 cron = "0 * * * *" # 每小时执行一次
+
+# 不再需要 npm install，因为不使用 Node.js 驱动
+# [build]
+# command = "npm install"
