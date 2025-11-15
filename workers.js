@@ -81,16 +81,14 @@ export default {
         return code && code.toLowerCase() === INVITE_CODE.toLowerCase();
       };
 
-      // 验证头像 URL (移除大小限制，仅验证格式和是否为图片)
-      const validateAvatar = async (avatarUrl) => {
-        if (!avatarUrl) return false;
-        
+      // 验证头像格式 (移除大小限制，仅验证是否为图片)
+      const validateAvatarFormat = async (avatarUrl) => {
+        if (!avatarUrl) return true; // 允许空头像
         try {
           new URL(avatarUrl); // 验证 URL 格式
-          
-          const headResponse = await fetch(avatarUrl, { method: 'HEAD' });
-          const contentType = headResponse.headers.get('content-type');
-          return contentType && contentType.startsWith('image/'); // 验证是否为图片
+          // 不再使用 HEAD 请求，因为可能被跨域策略阻止
+          // 直接返回 true，让后端处理
+          return true;
         } catch (error) {
           console.error("验证头像失败:", error);
           return false;
@@ -161,7 +159,7 @@ export default {
         async '/register'(request) {
           const { username, password, nickname, avatar, inviteCode } = await request.json();
           
-          if (!username || !password || !nickname || !avatar || !inviteCode) {
+          if (!username || !password || !nickname) {
             return new Response(JSON.stringify({ error: '缺少必要字段' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
@@ -175,13 +173,7 @@ export default {
             });
           }
           
-          if (!(await validateAvatar(avatar))) {
-            return new Response(JSON.stringify({ error: '无效的头像 URL 或不是图片格式' }), { 
-              status: 400,
-              headers: { 'Content-Type': 'application/json' }
-            });
-          }
-          
+          // 不再验证头像格式，直接接受
           const userKey = `user:${username}`;
           const existingUser = await env.USERS_KV.get(userKey, { type: 'json' });
           if (existingUser) {
@@ -195,7 +187,7 @@ export default {
             username,
             password,
             nickname,
-            avatar,
+            avatar: avatar || getDefaultAvatar(nickname), // 如果未提供头像，使用默认头像
             isAdmin: false,
             createdAt: new Date().toISOString(),
             isMuted: false
@@ -523,20 +515,14 @@ export default {
         async '/update-avatar'(request) {
           const { username, avatar } = await request.json();
           
-          if (!username || !avatar) {
-            return new Response(JSON.stringify({ error: '缺少用户名或头像' }), { 
+          if (!username) {
+            return new Response(JSON.stringify({ error: '缺少用户名' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
           
-          if (!(await validateAvatar(avatar))) {
-            return new Response(JSON.stringify({ error: '无效的头像 URL 或不是图片格式' }), { 
-              status: 400,
-              headers: { 'Content-Type': 'application/json' }
-            });
-          }
-          
+          // 允許空頭像
           const userKey = `user:${username}`;
           const user = await env.USERS_KV.get(userKey, { type: 'json' });
           
@@ -547,13 +533,10 @@ export default {
             });
           }
           
-          // 保存旧头像，如果需要实现删除逻辑，可以在这里记录
-          const oldAvatar = user.avatar;
-          
           // 更新用户头像
           await env.USERS_KV.put(userKey, JSON.stringify({ 
             ...user, 
-            avatar: avatar 
+            avatar: avatar || getDefaultAvatar(user.nickname) // 如果新头像为空，使用默认头像
           }));
           
           return new Response(JSON.stringify({ success: true }), { 
@@ -594,6 +577,105 @@ export default {
             ...user, 
             password: newPassword 
           }));
+          
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { 'Content-Type': 'application/json' }
+          });
+        },
+        
+        // 更新用户名和昵称
+        async '/update-profile'(request) {
+          const { username, newUsername, newNickname } = await request.json();
+          
+          if (!username || (!newUsername && !newNickname)) {
+            return new Response(JSON.stringify({ error: '缺少用户名或新用户名/新昵称' }), { 
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          const userKey = `user:${username}`;
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
+              status: 404,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          // 如果要修改用户名，检查新用户名是否已被占用
+          if (newUsername && newUsername !== username) {
+            const newUserKey = `user:${newUsername}`;
+            const existingUser = await env.USERS_KV.get(newUserKey, { type: 'json' });
+            if (existingUser) {
+              return new Response(JSON.stringify({ error: '新用户名已存在' }), { 
+                status: 409,
+                headers: { 'Content-Type': 'application/json' }
+              });
+            }
+          }
+          
+          // 构建更新后的用户数据
+          const updatedUser = {
+            ...user,
+            ...(newUsername ? { username: newUsername } : {}),
+            ...(newNickname ? { nickname: newNickname } : {})
+          };
+          
+          // 删除旧的用户记录（如果用户名被修改）
+          if (newUsername && newUsername !== username) {
+            await env.USERS_KV.delete(userKey);
+            // 使用新的键存储用户
+            await env.USERS_KV.put(newUserKey, JSON.stringify(updatedUser));
+          } else {
+            // 用户名未修改，直接更新
+            await env.USERS_KV.put(userKey, JSON.stringify(updatedUser));
+          }
+          
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { 'Content-Type': 'application/json' }
+          });
+        },
+        
+        // 注销账号
+        async '/delete-account'(request) {
+          const { username, password } = await request.json();
+          
+          if (!username || !password) {
+            return new Response(JSON.stringify({ error: '缺少用户名或密码' }), { 
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          const userKey = `user:${username}`;
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
+              status: 404,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          if (user.password !== password) {
+            return new Response(JSON.stringify({ error: '密码错误' }), { 
+              status: 401,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          // 检查用户是否被禁言
+          if (user.isMuted) {
+            return new Response(JSON.stringify({ error: '被禁言的账号不能注销' }), { 
+              status: 403,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          // 删除用户
+          await env.USERS_KV.delete(userKey);
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
@@ -676,3 +758,12 @@ export default {
     }
   }
 };
+
+// 生成默认头像URL
+function getDefaultAvatar(nickname) {
+    if (!nickname) return 'https://ui-avatars.com/api/?name=U&background=0D8ABC';
+    // 取昵称后两位字符，如果昵称只有一个字符，则取第一个
+    const initials = nickname.length > 1 ? nickname.slice(-2) : nickname.charAt(0);
+    // 使用 encodeURIComponent 确保中文等字符被正确编码
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=0D8ABC&color=fff`;
+}
