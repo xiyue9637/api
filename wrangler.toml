@@ -2,10 +2,6 @@ name = "monet-chat-api"
 main = "workers.js"
 compatibility_date = "2025-11-15"
 
-# 安装依赖
-[build]
-command = "npm install"
-
 # 定时触发器配置 - 每小时检查一次
-[[triggers]]
+[[triggers.crons]]
 cron = "0 * * * *" # 每小时执行一次

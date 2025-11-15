@@ -1,7 +1,5 @@
 import { MongoClient } from 'mongodb';
 
-// script.js - 莫奈聊天室前端逻辑
-// 后端 API 地址已根据您当前部署的 Worker 设置
 export default {
   async fetch(request, env) {
     // CORS 处理
