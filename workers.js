@@ -81,21 +81,16 @@ export default {
         return code && code.toLowerCase() === INVITE_CODE.toLowerCase();
       };
 
-      // 验证头像
+      // 验证头像 URL (移除大小限制，仅验证格式和是否为图片)
       const validateAvatar = async (avatarUrl) => {
         if (!avatarUrl) return false;
         
         try {
-          new URL(avatarUrl);
+          new URL(avatarUrl); // 验证 URL 格式
+          
           const headResponse = await fetch(avatarUrl, { method: 'HEAD' });
-          const contentLength = headResponse.headers.get('content-length');
-          
-          if (contentLength && parseInt(contentLength) > 2 * 1024 * 1024) {
-            return false;
-          }
-          
           const contentType = headResponse.headers.get('content-type');
-          return contentType && contentType.startsWith('image/');
+          return contentType && contentType.startsWith('image/'); // 验证是否为图片
         } catch (error) {
           console.error("验证头像失败:", error);
           return false;
@@ -181,7 +176,7 @@ export default {
           }
           
           if (!(await validateAvatar(avatar))) {
-            return new Response(JSON.stringify({ error: '无效的头像 URL 或文件过大 (最大 2MB)' }), { 
+            return new Response(JSON.stringify({ error: '无效的头像 URL 或不是图片格式' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
@@ -518,6 +513,87 @@ export default {
           }
           
           await env.USERS_KV.delete(userKey);
+          
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { 'Content-Type': 'application/json' }
+          });
+        },
+        
+        // 更新头像
+        async '/update-avatar'(request) {
+          const { username, avatar } = await request.json();
+          
+          if (!username || !avatar) {
+            return new Response(JSON.stringify({ error: '缺少用户名或头像' }), { 
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          if (!(await validateAvatar(avatar))) {
+            return new Response(JSON.stringify({ error: '无效的头像 URL 或不是图片格式' }), { 
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          const userKey = `user:${username}`;
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
+              status: 404,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          // 保存旧头像，如果需要实现删除逻辑，可以在这里记录
+          const oldAvatar = user.avatar;
+          
+          // 更新用户头像
+          await env.USERS_KV.put(userKey, JSON.stringify({ 
+            ...user, 
+            avatar: avatar 
+          }));
+          
+          return new Response(JSON.stringify({ success: true }), { 
+            headers: { 'Content-Type': 'application/json' }
+          });
+        },
+        
+        // 更新密码
+        async '/update-password'(request) {
+          const { username, oldPassword, newPassword } = await request.json();
+          
+          if (!username || !oldPassword || !newPassword) {
+            return new Response(JSON.stringify({ error: '缺少用户名、旧密码或新密码' }), { 
+              status: 400,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          const userKey = `user:${username}`;
+          const user = await env.USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
+              status: 404,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          if (user.password !== oldPassword) {
+            return new Response(JSON.stringify({ error: '旧密码错误' }), { 
+              status: 401,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
+          
+          // 更新用户密码
+          await env.USERS_KV.put(userKey, JSON.stringify({ 
+            ...user, 
+            password: newPassword 
+          }));
           
           return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
