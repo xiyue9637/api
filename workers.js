@@ -1,73 +1,6 @@
-// 注意：此代码示例假设您已启用并配置了 MongoDB Atlas Data API
-// 您需要在 MongoDB Atlas 中获取您的 Project ID, Cluster Name, API Key
-// 这些信息不应硬编码在代码中，而应通过环境变量传递
-
-// 从环境变量获取 MongoDB Atlas Data API 配置
-// 这些变量需要在 Cloudflare Workers 仪表板中设置
-// MONGODB_DATA_API_PROJECT_ID
-// MONGODB_DATA_API_CLUSTER_NAME
-// MONGODB_DATA_API_KEY
-// MONGODB_DATA_API_BASE_URL (通常是 https://data.mongodb-api.com/app/data-<your-app-id>/endpoint/data/v1)
-
-// 示例配置 (请替换为您的实际值，并通过环境变量传递)
-// const MONGODB_DATA_API_BASE_URL = env.MONGODB_DATA_API_BASE_URL;
-// const MONGODB_DATA_API_PROJECT_ID = env.MONGODB_DATA_API_PROJECT_ID;
-// const MONGODB_DATA_API_CLUSTER_NAME = env.MONGODB_DATA_API_CLUSTER_NAME;
-// const MONGODB_DATA_API_KEY = env.MONGODB_DATA_API_KEY;
-
-// 为了演示，我们定义一个函数来构建 API 调用
-async function callMongoDBAPI(collection, operation, query = {}, update = {}, document = {}, options = {}) {
-    const MONGODB_DATA_API_BASE_URL = env.MONGODB_DATA_API_BASE_URL;
-    const MONGODB_DATA_API_PROJECT_ID = env.MONGODB_DATA_API_PROJECT_ID;
-    const MONGODB_DATA_API_CLUSTER_NAME = env.MONGODB_DATA_API_CLUSTER_NAME;
-    const MONGODB_DATA_API_KEY = env.MONGODB_DATA_API_KEY;
-
-    if (!MONGODB_DATA_API_BASE_URL || !MONGODB_DATA_API_PROJECT_ID || !MONGODB_DATA_API_CLUSTER_NAME || !MONGODB_DATA_API_KEY) {
-        throw new Error("Missing MongoDB Data API configuration in environment variables.");
-    }
-
-    const url = `${MONGODB_DATA_API_BASE_URL}/action/${operation}`;
-    const headers = {
-        'Content-Type': 'application/json',
-        'api-key': MONGODB_DATA_API_KEY,
-    };
-
-    const body = JSON.stringify({
-        dataSource: MONGODB_DATA_API_CLUSTER_NAME,
-        database: "chat_app", // 固定数据库名
-        collection: collection,
-        ...query,
-        ...update,
-        ...document,
-        ...options,
-    });
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: headers,
-            body: body,
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`MongoDB API Error: ${response.status} - ${errorText}`);
-            throw new Error(`MongoDB API Error: ${response.status} - ${errorText}`);
-        }
-
-        return await response.json();
-    } catch (error) {
-        console.error("MongoDB API Call Failed:", error);
-        throw error;
-    }
-}
-
-// 移除 Node.js 驱动的 import
-// import { MongoClient } from 'mongodb';
-
 export default {
   async fetch(request, env) {
-    // CORS 处理
+    // CORS 预检请求
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: {
@@ -79,17 +12,16 @@ export default {
     }
 
     try {
-      // 从环境变量获取配置
-      // const MONGODB_URI = env.MONGODB_URI; // 不再需要原始 URI
-      const DB_NAME = "chat_app";
-      const COLLECTIONS = {
-        USERS: "users",
-        MESSAGES: "messages",
-        CONFIG: "config"
-      };
-
       // 邀请码
       const INVITE_CODE = "xiyue520";
+
+      // 初始化 KV 命名空间
+      const { USERS_KV, MESSAGES_KV, CONFIG_KV } = env;
+      
+      // 检查 KV 命名空间是否配置正确
+      if (!USERS_KV || !MESSAGES_KV || !CONFIG_KV) {
+        throw new Error("Missing KV namespace configuration");
+      }
 
       // 简单的加密/解密函数
       const encryptMessage = (message) => {
@@ -107,50 +39,41 @@ export default {
 
       // 初始化管理员
       const initAdminUser = async () => {
-        // 使用 Data API 查找管理员
-        const findAdminResult = await callMongoDBAPI(
-            COLLECTIONS.USERS,
-            'findOne',
-            { filter: { username: "xiyue" } }
-        );
-        if (!findAdminResult.document) {
+        const adminKey = `user:xiyue`;
+        const existingAdmin = await USERS_KV.get(adminKey, { type: 'json' });
+        
+        if (!existingAdmin) {
           const admin = {
             username: "xiyue",
             password: "20090327qi", // 实际生产中应哈希存储
             nickname: "管理员",
             avatar: "https://i.pravatar.cc/150?u=admin",
             isAdmin: true,
-            createdAt: new Date(),
+            createdAt: new Date().toISOString(),
             isMuted: false
           };
-
-          await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'insertOne',
-              {},
-              {},
-              { document: admin }
-          );
+          
+          await USERS_KV.put(adminKey, JSON.stringify(admin));
           console.log("管理员用户 'xiyue' 已创建");
         }
       };
 
       // 初始化配置
       const initConfig = async () => {
-        const findConfigResult = await callMongoDBAPI(
-            COLLECTIONS.CONFIG,
-            'findOne',
-            { filter: { key: "messageClearTime" } }
-        );
-        if (!findConfigResult.document) {
-          await callMongoDBAPI(
-              COLLECTIONS.CONFIG,
-              'insertOne',
-              {},
-              {},
-              { document: { key: "messageClearTime", value: 0, updatedAt: new Date() } }
-          );
+        // 初始化自动清除时间
+        const clearTimeKey = `config:clearTime`;
+        const existingClearTime = await CONFIG_KV.get(clearTimeKey);
+        if (!existingClearTime) {
+          await CONFIG_KV.put(clearTimeKey, "0");
           console.log("自动清除时间配置已初始化");
+        }
+        
+        // 初始化禁言列表
+        const muteListKey = `config:muteList`;
+        const existingMuteList = await CONFIG_KV.get(muteListKey, { type: 'json' });
+        if (!existingMuteList) {
+          await CONFIG_KV.put(muteListKey, JSON.stringify([]));
+          console.log("禁言列表配置已初始化");
         }
       };
 
@@ -166,26 +89,26 @@ export default {
       // 验证头像 URL 和大小 (通过 HEAD 请求)
       const validateAvatar = async (avatarUrl) => {
         if (!avatarUrl) return false;
-
+        
         try {
           new URL(avatarUrl); // 验证 URL 格式
-
+          
           const headResponse = await fetch(avatarUrl, { method: 'HEAD' });
           const contentLength = headResponse.headers.get('content-length');
-
+          
           if (!contentLength) {
             // 如果服务器不返回 Content-Length，无法判断大小，允许继续
             console.warn("无法确定头像大小，服务器未返回 Content-Length 头");
             return true;
           }
-
+          
           const sizeInBytes = parseInt(contentLength);
           const sizeInMB = sizeInBytes / (1024 * 1024);
-
+          
           if (sizeInMB > 2) {
             return false; // 大于 2MB
           }
-
+          
           const contentType = headResponse.headers.get('content-type');
           return contentType && contentType.startsWith('image/'); // 验证是否为图片
         } catch (error) {
@@ -307,383 +230,357 @@ export default {
         // 注册
         async '/register'(request) {
           const { username, password, nickname, avatar, inviteCode } = await request.json();
-
+          
           if (!username || !password || !nickname || !avatar || !inviteCode) {
-            return new Response(JSON.stringify({ error: '缺少必要字段' }), {
+            return new Response(JSON.stringify({ error: '缺少必要字段' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           if (!validateInviteCode(inviteCode)) {
-            return new Response(JSON.stringify({ error: '无效的邀请码' }), {
+            return new Response(JSON.stringify({ error: '无效的邀请码' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           if (!(await validateAvatar(avatar))) {
-            return new Response(JSON.stringify({ error: '无效的头像 URL 或文件过大 (最大 2MB)' }), {
+            return new Response(JSON.stringify({ error: '无效的头像 URL 或文件过大 (最大 2MB)' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          // 检查用户是否存在
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username } }
-          );
-          if (findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户名已存在' }), {
+          
+          const userKey = `user:${username}`;
+          const existingUser = await USERS_KV.get(userKey, { type: 'json' });
+          if (existingUser) {
+            return new Response(JSON.stringify({ error: '用户名已存在' }), { 
               status: 409,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           const newUser = {
             username,
             password, // 实际应用应哈希存储
             nickname,
             avatar,
             isAdmin: false,
-            createdAt: new Date(),
+            createdAt: new Date().toISOString(),
             isMuted: false
           };
-
-          await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'insertOne',
-              {},
-              {},
-              { document: newUser }
-          );
-          return new Response(JSON.stringify({ success: true }), {
+          
+          await USERS_KV.put(userKey, JSON.stringify(newUser));
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 登录
         async '/login'(request) {
           const { username, password } = await request.json();
-
+          
           if (!username || !password) {
-            return new Response(JSON.stringify({ error: '缺少用户名或密码' }), {
+            return new Response(JSON.stringify({ error: '缺少用户名或密码' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username, password: password } }
-          );
-
-          if (!findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户名或密码错误' }), {
+          
+          const userKey = `user:${username}`;
+          const user = await USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user || user.password !== password) {
+            return new Response(JSON.stringify({ error: '用户名或密码错误' }), { 
               status: 401,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           // 返回用户信息 (不包含密码)
-          const userWithoutPassword = { ...findUserResult.document };
-          delete userWithoutPassword.password;
-          return new Response(JSON.stringify({ user: userWithoutPassword }), {
+          const { password: _, ...userWithoutPassword } = user;
+          return new Response(JSON.stringify({ user: userWithoutPassword }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 获取消息
         async '/messages'() {
-          // 使用 Data API 获取最近50条消息，按时间升序
-          const findMessagesResult = await callMongoDBAPI(
-              COLLECTIONS.MESSAGES,
-              'find',
-              { filter: {}, sort: { timestamp: 1 }, limit: 50 }
-          );
-
-          const messages = findMessagesResult.documents || [];
-
+          // 获取所有消息键
+          let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
+          
+          // 按时间排序（假设键包含时间戳）
+          const messages = [];
+          for (const key of messageKeys.keys) {
+            if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
+            const msg = await MESSAGES_KV.get(key.name, { type: 'json' });
+            if (msg) {
+              msg._id = key.name.replace('message:', '');
+              messages.push(msg);
+            }
+          }
+          
+          // 按时间排序，取最近50条
+          messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          const recentMessages = messages.slice(-50);
+          
           // 解密消息内容
-          const decryptedMessages = messages.map(msg => ({
+          const decryptedMessages = recentMessages.map(msg => ({
             ...msg,
-            _id: msg._id.$oid, // MongoDB Data API 返回的 ObjectId 格式
             message: decryptMessage(msg.message)
           }));
-
-          return new Response(JSON.stringify(decryptedMessages), { // 不再反转
+          
+          return new Response(JSON.stringify(decryptedMessages), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 发送消息
         async '/send'(request) {
           const { username, message } = await request.json();
-
+          
           if (!username || !message) {
-            return new Response(JSON.stringify({ error: '缺少用户名或消息内容' }), {
+            return new Response(JSON.stringify({ error: '缺少用户名或消息内容' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username } }
-          );
-
-          if (!findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户不存在' }), {
+          
+          const userKey = `user:${username}`;
+          const user = await USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
               status: 404,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          if (findUserResult.document.isMuted) {
-            return new Response(JSON.stringify({ error: '您已被禁言，无法发送消息' }), {
+          
+          if (user.isMuted) {
+            return new Response(JSON.stringify({ error: '您已被禁言，无法发送消息' }), { 
               status: 403,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           // 加密消息
           const encryptedMessage = encryptMessage(message);
-
+          
+          // 生成唯一消息ID (时间戳+随机数)
+          const messageId = `${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+          const messageKey = `message:${messageId}`;
+          
           // 保存消息
           const newMessage = {
-            username: findUserResult.document.username,
-            nickname: findUserResult.document.nickname,
-            avatar: findUserResult.document.avatar,
+            username: user.username,
+            nickname: user.nickname,
+            avatar: user.avatar,
             message: encryptedMessage,
-            timestamp: new Date()
+            timestamp: new Date().toISOString()
           };
-
-          await callMongoDBAPI(
-              COLLECTIONS.MESSAGES,
-              'insertOne',
-              {},
-              {},
-              { document: newMessage }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          
+          await MESSAGES_KV.put(messageKey, JSON.stringify(newMessage));
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 获取用户列表
         async '/user-list'() {
-          const findUsersResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'find',
-              { filter: {} }
-          );
-
-          const users = findUsersResult.documents || [];
-
-          // 不返回密码
-          const usersWithoutPassword = users.map(user => {
-            const userWithoutPassword = { ...user };
-            delete userWithoutPassword.password;
-            userWithoutPassword.id = userWithoutPassword._id.$oid; // 转换 ObjectId
-            delete userWithoutPassword._id;
-            return userWithoutPassword;
-          });
-
-          return new Response(JSON.stringify(usersWithoutPassword), {
+          let userKeys = await USERS_KV.list({ prefix: 'user:' });
+          const users = [];
+          
+          for (const key of userKeys.keys) {
+            const user = await USERS_KV.get(key.name, { type: 'json' });
+            if (user) {
+              const { password, ...userWithoutPassword } = user;
+              users.push(userWithoutPassword);
+            }
+          }
+          
+          return new Response(JSON.stringify(users), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 获取自动清除时间
         async '/get-clear-time'() {
-          const findConfigResult = await callMongoDBAPI(
-              COLLECTIONS.CONFIG,
-              'findOne',
-              { filter: { key: "messageClearTime" } }
-          );
-
-          return new Response(JSON.stringify({ time: findConfigResult.document?.value || 0 }), {
+          const clearTimeKey = `config:clearTime`;
+          const clearTime = await CONFIG_KV.get(clearTimeKey) || "0";
+          
+          return new Response(JSON.stringify({ time: parseInt(clearTime) }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 设置自动清除时间
         async '/set-clear-time'(request) {
           const { time } = await request.json();
-
+          
           if (typeof time !== 'number' || time < 0) {
-            return new Response(JSON.stringify({ error: '无效的时间值' }), {
+            return new Response(JSON.stringify({ error: '无效的时间值' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          await callMongoDBAPI(
-              COLLECTIONS.CONFIG,
-              'updateOne',
-              { filter: { key: "messageClearTime" } },
-              { update: { $set: { value: time, updatedAt: new Date() } } }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          
+          const clearTimeKey = `config:clearTime`;
+          await CONFIG_KV.put(clearTimeKey, time.toString());
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 清除所有消息
         async '/clear-messages'() {
-          await callMongoDBAPI(
-              COLLECTIONS.MESSAGES,
-              'deleteMany',
-              { filter: {} }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          // 获取所有消息键
+          let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
+          
+          // 删除所有消息
+          const deletePromises = [];
+          for (const key of messageKeys.keys) {
+            if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
+            deletePromises.push(MESSAGES_KV.delete(key.name));
+          }
+          
+          await Promise.all(deletePromises);
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 禁言用户
         async '/mute'(request) {
           const { username } = await request.json();
-
+          
           if (!username) {
-            return new Response(JSON.stringify({ error: '缺少用户名' }), {
+            return new Response(JSON.stringify({ error: '缺少用户名' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username } }
-          );
-
-          if (!findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户不存在' }), {
+          
+          const userKey = `user:${username}`;
+          const user = await USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
               status: 404,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           // 不能禁言管理员
-          if (findUserResult.document.username === "xiyue") {
-            return new Response(JSON.stringify({ error: '不能禁言管理员' }), {
+          if (user.username === "xiyue") {
+            return new Response(JSON.stringify({ error: '不能禁言管理员' }), { 
               status: 403,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'updateOne',
-              { filter: { username: username } },
-              { update: { $set: { isMuted: true } } }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          
+          await USERS_KV.put(userKey, JSON.stringify({ 
+            ...user, 
+            isMuted: true 
+          }));
+          
+          // 更新禁言列表
+          const muteListKey = `config:muteList`;
+          let muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          if (!muteList.includes(username)) {
+            muteList.push(username);
+            await CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
+          }
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 解禁用户
         async '/unmute'(request) {
           const { username } = await request.json();
-
+          
           if (!username) {
-            return new Response(JSON.stringify({ error: '缺少用户名' }), {
+            return new Response(JSON.stringify({ error: '缺少用户名' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username } }
-          );
-
-          if (!findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户不存在' }), {
+          
+          const userKey = `user:${username}`;
+          const user = await USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
               status: 404,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'updateOne',
-              { filter: { username: username } },
-              { update: { $set: { isMuted: false } } }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          
+          await USERS_KV.put(userKey, JSON.stringify({ 
+            ...user, 
+            isMuted: false 
+          }));
+          
+          // 更新禁言列表
+          const muteListKey = `config:muteList`;
+          let muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          muteList = muteList.filter(u => u !== username);
+          await CONFIG_KV.put(muteListKey, JSON.stringify(muteList));
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 获取禁言列表
         async '/get-mute-list'() {
-          const findMutedUsersResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'find',
-              { filter: { isMuted: true }, projection: { username: 1 } }
-          );
-
-          const mutedUsers = findMutedUsersResult.documents || [];
-
-          return new Response(JSON.stringify({
-            users: mutedUsers.map(u => u.username)
-          }), {
+          const muteListKey = `config:muteList`;
+          const muteList = await CONFIG_KV.get(muteListKey, { type: 'json' }) || [];
+          
+          return new Response(JSON.stringify({ 
+            users: muteList 
+          }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         },
-
+        
         // 移除用户
         async '/remove'(request) {
           const { username } = await request.json();
-
+          
           if (!username) {
-            return new Response(JSON.stringify({ error: '缺少用户名' }), {
+            return new Response(JSON.stringify({ error: '缺少用户名' }), { 
               status: 400,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          const findUserResult = await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'findOne',
-              { filter: { username: username } }
-          );
-
-          if (!findUserResult.document) {
-            return new Response(JSON.stringify({ error: '用户不存在' }), {
+          
+          const userKey = `user:${username}`;
+          const user = await USERS_KV.get(userKey, { type: 'json' });
+          
+          if (!user) {
+            return new Response(JSON.stringify({ error: '用户不存在' }), { 
               status: 404,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
+          
           // 不能移除管理员
-          if (findUserResult.document.username === "xiyue") {
-            return new Response(JSON.stringify({ error: '不能移除管理员' }), {
+          if (user.username === "xiyue") {
+            return new Response(JSON.stringify({ error: '不能移除管理员' }), { 
               status: 403,
               headers: { 'Content-Type': 'application/json' }
             });
           }
-
-          await callMongoDBAPI(
-              COLLECTIONS.USERS,
-              'deleteOne',
-              { filter: { username: username } }
-          );
-
-          return new Response(JSON.stringify({ success: true }), {
+          
+          await USERS_KV.delete(userKey);
+          
+          return new Response(JSON.stringify({ success: true }), { 
             headers: { 'Content-Type': 'application/json' }
           });
         }
@@ -692,10 +589,10 @@ export default {
       // 处理请求
       let response;
       if (path in apiHandlers) {
-        response = await apiHandlers[path](request, env); // 传递 env
+        response = await apiHandlers[path](request, env);
       } else {
         // 404
-        response = new Response(JSON.stringify({ error: '路由未找到' }), {
+        response = new Response(JSON.stringify({ error: '路由未找到' }), { 
           status: 404,
           headers: { 'Content-Type': 'application/json' }
         });
@@ -713,9 +610,9 @@ export default {
       });
     } catch (error) {
       console.error("Worker 错误:", error);
-      return new Response(JSON.stringify({ error: '服务器内部错误: ' + error.message }), {
+      return new Response(JSON.stringify({ error: '服务器内部错误: ' + error.message }), { 
         status: 500,
-        headers: {
+        headers: { 
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -725,50 +622,41 @@ export default {
     }
   },
 
-  // 定时任务使用 Data API 清理消息
   async scheduled(event, env, ctx) {
     try {
-      const MONGODB_DATA_API_BASE_URL = env.MONGODB_DATA_API_BASE_URL;
-      const MONGODB_DATA_API_PROJECT_ID = env.MONGODB_DATA_API_PROJECT_ID;
-      const MONGODB_DATA_API_CLUSTER_NAME = env.MONGODB_DATA_API_CLUSTER_NAME;
-      const MONGODB_DATA_API_KEY = env.MONGODB_DATA_API_KEY;
-
-      if (!MONGODB_DATA_API_BASE_URL || !MONGODB_DATA_API_PROJECT_ID || !MONGODB_DATA_API_CLUSTER_NAME || !MONGODB_DATA_API_KEY) {
-          console.error("定时任务: 缺少 MongoDB Data API 配置");
-          return;
+      const { MESSAGES_KV, CONFIG_KV } = env;
+      
+      if (!MESSAGES_KV || !CONFIG_KV) {
+        console.error("定时任务: 缺少 KV 命名空间配置");
+        return;
       }
 
       // 获取自动清除时间
-      const findConfigResult = await callMongoDBAPI(
-          "config", // COLLECTIONS.CONFIG
-          'findOne',
-          { filter: { key: "messageClearTime" } },
-          {},
-          {},
-          {},
-          env // 传递 env
-      );
-
-      const clearTime = findConfigResult.document?.value || 0;
+      const clearTimeKey = `config:clearTime`;
+      const clearTime = parseInt(await CONFIG_KV.get(clearTimeKey) || "0");
+      
       if (clearTime > 0) {
         const cutoffDate = new Date(Date.now() - clearTime);
-
-        // 使用 Data API 删除过期消息
-        const deleteResult = await callMongoDBAPI(
-            "messages", // COLLECTIONS.MESSAGES
-            'deleteMany',
-            { filter: { timestamp: { $lt: { $date: cutoffDate.toISOString() } } } },
-            {},
-            {},
-            {},
-            env // 传递 env
-        );
-
-        console.log(`定时任务: 已清除 ${cutoffDate.toISOString()} 之前的消息，共 ${deleteResult.deletedCount} 条`);
+        
+        // 获取所有消息
+        let messageKeys = await MESSAGES_KV.list({ prefix: 'message:' });
+        
+        // 删除过期消息
+        let deletedCount = 0;
+        for (const key of messageKeys.keys) {
+          if (key.name.startsWith('message:id:')) continue; // 跳过ID计数器
+          
+          const msg = await MESSAGES_KV.get(key.name, { type: 'json' });
+          if (msg && new Date(msg.timestamp) < cutoffDate) {
+            await MESSAGES_KV.delete(key.name);
+            deletedCount++;
+          }
+        }
+        
+        console.log(`定时任务: 已清除 ${cutoffDate.toISOString()} 之前的消息，共 ${deletedCount} 条`);
       } else {
           console.log("定时任务: 自动清除时间设置为 0，跳过清理。");
       }
-
     } catch (error) {
       console.error("定时任务错误:", error);
     }
