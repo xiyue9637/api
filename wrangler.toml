@@ -1,11 +1,8 @@
 name = "monet-chat-api"
 main = "workers.js"
-compatibility_date = "2025-11-15"
+compatibility_date = "2024-02-08"
 
 # 定时触发器配置 - 每小时检查一次
-[[triggers.crons]]
-cron = "0 * * * *" # 每小时执行一次
-
-# 不再需要 npm install，因为不使用 Node.js 驱动
-# [build]
-# command = "npm install"
+# 尝试使用更标准的格式
+[[triggers]]
+crons = ["0 * * * *"] # 每小时执行一次
