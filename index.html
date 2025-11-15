@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>莫奈聊天室</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 添加Markdown渲染库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- 登录/注册区域 -->
+        <div id="auth-section" class="section">
+            <div class="tabs">
+                <button id="login-tab" class="tab active">登录</button>
+                <button id="register-tab" class="tab">注册</button>
+            </div>
+            <div id="login-form" class="form active">
+                <input type="text" id="login-username" placeholder="用户名">
+                <input type="password" id="login-password" placeholder="密码">
+                <button id="login-btn">登录</button>
+                <p id="login-error" class="error-message"></p>
+            </div>
+            <div id="register-form" class="form">
+                <input type="text" id="register-username" placeholder="用户名">
+                <input type="password" id="register-password" placeholder="密码">
+                <input type="text" id="register-nickname" placeholder="昵称">
+                <input type="url" id="register-avatar" placeholder="头像URL (例如: https://i.pravatar.cc/150?u=a042581f4e29026704d)">
+                <!-- 新增邀请码输入框 -->
+                <input type="text" id="register-invite" placeholder="邀请码 (xiyue520)">
+                <button id="register-btn">注册</button>
+                <p id="register-error" class="error-message"></p>
+            </div>
+        </div>
+        <!-- 聊天区域 -->
+        <div id="chat-section" class="section hidden">
+            <div class="chat-header">
+                <span id="welcome-message">欢迎, <span id="user-nickname"></span></span>
+                <button id="logout-btn">退出</button>
+            </div>
+            <div id="messages-container"></div>
+            <div class="input-area">
+                <input type="text" id="message-input" placeholder="输入消息...">
+                <button id="send-btn">发送</button>
+            </div>
+        </div>
+        <!-- 管理员面板 (仅管理员可见) -->
+        <div id="admin-panel" class="section hidden">
+            <h3>管理员面板</h3>
+            <!-- 新增搜索功能 -->
+            <div class="admin-controls">
+                <input type="text" id="user-search" placeholder="搜索用户名/昵称...">
+                <button id="search-btn">搜索</button>
+                <button id="reset-search-btn">重置</button>
+            </div>
+            <div>
+                <label for="clear-time-select">自动清除消息:</label>
+                <select id="clear-time-select">
+                    <option value="0">从不</option>
+                    <option value="3600000">1小时后</option>
+                    <option value="86400000">1天后</option>
+                    <option value="604800000">1周后</option>
+                </select>
+                <button id="apply-clear-time-btn">应用</button>
+                <button id="clear-all-messages-btn">立即清除所有消息</button>
+            </div>
+            <div>
+                <h4>用户列表</h4>
+                <ul id="user-list"></ul>
+            </div>
+        </div>
+    </div>
+    <script>
+        // 防XSS处理函数
+        function sanitizeHTML(html) {
+            const div = document.createElement('div');
+            div.textContent = html;
+            return div.innerHTML;
+        }
+        
+        // 配置marked库，防止XSS攻击
+        marked.setOptions({
+            renderer: new marked.Renderer(),
+            gfm: true,
+            tables: true,
+            breaks: false,
+            pedantic: false,
+            sanitize: false, // 我们自己处理安全
+            smartLists: true,
+            smartypants: true,
+            xhtml: false
+        });
+        
+        // 重写marked的渲染函数，添加防XSS处理
+        const originalRender = marked.Renderer.prototype.paragraph;
+        marked.Renderer.prototype.paragraph = function(text) {
+            return originalRender.call(this, sanitizeHTML(text));
+        };
+    </script>
+    <script src="script.js"></script>
+</body>
+</html>
