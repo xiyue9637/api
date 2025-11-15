@@ -1,4 +1,7 @@
-// workers.js
+import { MongoClient } from 'mongodb';
+
+// script.js - 莫奈聊天室前端逻辑
+// 后端 API 地址已根据您当前部署的 Worker 设置
 export default {
   async fetch(request, env) {
     // CORS 处理
@@ -39,7 +42,7 @@ export default {
           return decodeURIComponent(escape(atob(encryptedMessage)));
         } catch (e) {
           console.error("解密失败:", e);
-          return encryptedMessage;
+          return encryptedMessage; // 如果解密失败，返回原文
         }
       };
 
@@ -65,7 +68,7 @@ export default {
         if (!adminUser) {
           const admin = {
             username: "xiyue",
-            password: "20090327qi",
+            password: "20090327qi", // 实际生产中应哈希存储
             nickname: "管理员",
             avatar: "https://i.pravatar.cc/150?u=admin",
             isAdmin: true,
@@ -74,7 +77,7 @@ export default {
           };
           
           await usersCollection.insertOne(admin);
-          console.log("管理员用户已创建");
+          console.log("管理员用户 'xiyue' 已创建");
         }
       };
 
@@ -91,16 +94,6 @@ export default {
           });
           console.log("自动清除时间配置已初始化");
         }
-        
-        let muteListConfig = await configCollection.findOne({ key: "muteList" });
-        if (!muteListConfig) {
-          await configCollection.insertOne({
-            key: "muteList",
-            value: [],
-            updatedAt: new Date()
-          });
-          console.log("禁言列表配置已初始化");
-        }
       };
 
       // 初始化
@@ -112,22 +105,31 @@ export default {
         return code && code.toLowerCase() === INVITE_CODE.toLowerCase();
       };
 
-      // 验证头像
+      // 验证头像 URL 和大小 (通过 HEAD 请求)
       const validateAvatar = async (avatarUrl) => {
         if (!avatarUrl) return false;
         
         try {
-          new URL(avatarUrl);
+          new URL(avatarUrl); // 验证 URL 格式
           
           const headResponse = await fetch(avatarUrl, { method: 'HEAD' });
           const contentLength = headResponse.headers.get('content-length');
           
-          if (!contentLength || parseInt(contentLength) > 2 * 1024 * 1024) {
-            return false;
+          if (!contentLength) {
+            // 如果服务器不返回 Content-Length，无法判断大小，允许继续
+            console.warn("无法确定头像大小，服务器未返回 Content-Length 头");
+            return true;
+          }
+          
+          const sizeInBytes = parseInt(contentLength);
+          const sizeInMB = sizeInBytes / (1024 * 1024);
+          
+          if (sizeInMB > 2) {
+            return false; // 大于 2MB
           }
           
           const contentType = headResponse.headers.get('content-type');
-          return contentType && contentType.startsWith('image/');
+          return contentType && contentType.startsWith('image/'); // 验证是否为图片
         } catch (error) {
           console.error("验证头像失败:", error);
           return false;
@@ -141,6 +143,109 @@ export default {
 
       // API 处理函数
       const apiHandlers = {
+        // 根路径欢迎页面
+        async '/'() {
+          const html = `
+            <!DOCTYPE html>
+            <html lang="zh-CN">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>聊天室后端</title>
+              <style>
+                body {
+                  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                  background-color: #f0f8ff;
+                  color: #293241;
+                  display: flex;
+                  justify-content: center;
+                  align-items: center;
+                  min-height: 100vh;
+                  padding: 20px;
+                  margin: 0;
+                }
+                .container {
+                  text-align: center;
+                  max-width: 600px;
+                  padding: 30px;
+                  background-color: white;
+                  border-radius: 15px;
+                  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+                }
+                h1 {
+                  color: #457b9d;
+                  font-size: 2.5em;
+                  margin-bottom: 10px;
+                }
+                .emoji {
+                  font-size: 2em;
+                  margin-right: 10px;
+                }
+                p {
+                  margin: 15px 0;
+                  line-height: 1.6;
+                }
+                .admin-info {
+                  background-color: #f8f9fa;
+                  padding: 15px;
+                  border-radius: 8px;
+                  margin: 20px 0;
+                  text-align: left;
+                }
+                .admin-info strong {
+                  color: #e63946;
+                }
+                ul {
+                  text-align: left;
+                  margin: 20px auto;
+                  padding-left: 20px;
+                }
+                li {
+                  margin: 10px 0;
+                  padding: 8px;
+                  background-color: #f1faee;
+                  border-radius: 6px;
+                }
+                .endpoint {
+                  background-color: #a8dadc;
+                  padding: 5px 10px;
+                  border-radius: 4px;
+                  font-weight: bold;
+                  font-family: monospace;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <h1><span class="emoji">🎨</span>聊天室后端运行正常</h1>
+                <p>这是 API 服务，请配合前端使用。</p>
+                <div class="admin-info">
+                  <strong>管理员账号：</strong>用户名 <span class="endpoint">xiyue</span>，密码 <span class="endpoint">20090327qi</span>
+                </div>
+                <p>请通过前端页面与以下接口交互:</p>
+                <ul>
+                  <li><span class="endpoint">POST /register</span> - 用户注册 (需邀请码)</li>
+                  <li><span class="endpoint">POST /login</span> - 用户登录</li>
+                  <li><span class="endpoint">GET /messages</span> - 获取消息</li>
+                  <li><span class="endpoint">POST /send</span> - 发送消息</li>
+                  <li><span class="endpoint">GET /user-list</span> - 获取用户列表 (管理员)</li>
+                  <li><span class="endpoint">POST /mute</span> - 禁言用户 (管理员)</li>
+                  <li><span class="endpoint">POST /unmute</span> - 解禁用户 (管理员)</li>
+                  <li><span class="endpoint">POST /remove</span> - 移除用户 (管理员)</li>
+                  <li><span class="endpoint">GET /get-clear-time</span> - 获取自动清除时间 (管理员)</li>
+                  <li><span class="endpoint">POST /set-clear-time</span> - 设置自动清除时间 (管理员)</li>
+                  <li><span class="endpoint">POST /clear-messages</span> - 清除所有消息 (管理员)</li>
+                  <li><span class="endpoint">GET /get-mute-list</span> - 获取禁言列表 (管理员)</li>
+                </ul>
+              </div>
+            </body>
+            </html>
+          `;
+          return new Response(html, {
+            headers: { 'Content-Type': 'text/html' }
+          });
+        },
+
         // 注册
         async '/register'(request) {
           const { username, password, nickname, avatar, inviteCode } = await request.json();
@@ -222,7 +327,7 @@ export default {
         // 获取消息
         async '/messages'() {
           const messagesCollection = db.collection(COLLECTIONS.MESSAGES);
-          const messages = await messagesCollection.find().sort({ timestamp: -1 }).limit(50).toArray();
+          const messages = await messagesCollection.find().sort({ timestamp: 1 }).limit(50).toArray(); // 按时间升序排列，取最近50条
           
           // 解密消息内容
           const decryptedMessages = messages.map(msg => ({
@@ -231,7 +336,7 @@ export default {
             message: decryptMessage(msg.message)
           }));
           
-          return new Response(JSON.stringify(decryptedMessages.reverse()), { 
+          return new Response(JSON.stringify(decryptedMessages), { // 不再反转
             headers: { 'Content-Type': 'application/json' }
           });
         },
@@ -413,7 +518,7 @@ export default {
         // 获取禁言列表
         async '/get-mute-list'() {
           const usersCollection = db.collection(COLLECTIONS.USERS);
-          const mutedUsers = await usersCollection.find({ isMuted: true }).toArray();
+          const mutedUsers = await usersCollection.find({ isMuted: true }, { username: 1 }).toArray();
           
           return new Response(JSON.stringify({ 
             users: mutedUsers.map(u => u.username) 
@@ -500,7 +605,7 @@ export default {
     }
   },
 
-  async scheduled(event, env) {
+  async scheduled(event, env, ctx) {
     try {
       const MONGODB_URI = env.MONGODB_URI;
       const DB_NAME = "chat_app";
@@ -510,7 +615,8 @@ export default {
       };
 
       if (!MONGODB_URI) {
-        throw new Error("Missing database configuration for scheduled event");
+        console.error("定时任务: 缺少数据库配置");
+        return;
       }
 
       // 连接 MongoDB
@@ -535,6 +641,8 @@ export default {
         });
         
         console.log(`定时任务: 已清除 ${cutoffDate} 之前的消息，共 ${result.deletedCount} 条`);
+      } else {
+          console.log("定时任务: 自动清除时间设置为 0，跳过清理。");
       }
 
       // 关闭连接
@@ -544,71 +652,3 @@ export default {
     }
   }
 };
-
-// 在 Cloudflare Workers 环境中模拟 MongoDB
-class MongoClient {
-  constructor(uri, options) {
-    this.uri = uri;
-    this.options = options;
-  }
-
-  async connect() {
-    // 这里需要使用 Cloudflare Workers 兼容的 MongoDB 连接方式
-    // 实际部署时使用 @mongodb/atlas 库
-  }
-
-  db(name) {
-    return new Db(name);
-  }
-
-  async close() {
-    // 关闭连接
-  }
-}
-
-class Db {
-  constructor(name) {
-    this.name = name;
-  }
-
-  collection(name) {
-    return new Collection(name);
-  }
-}
-
-class Collection {
-  constructor(name) {
-    this.name = name;
-  }
-
-  async findOne(filter) {
-    // 模拟实现
-    return null;
-  }
-
-  async find(filter = {}) {
-    // 模拟实现
-    return {
-      toArray: async () => [],
-      sort: () => this,
-      limit: () => this
-    };
-  }
-
-  async insertOne(doc) {
-    // 模拟实现
-  }
-
-  async updateOne(filter, update) {
-    // 模拟实现
-  }
-
-  async deleteMany(filter = {}) {
-    // 模拟实现
-    return { deletedCount: 0 };
-  }
-
-  async deleteOne(filter) {
-    // 模拟实现
-  }
-}
