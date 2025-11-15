@@ -1,0 +1,5 @@
+name = "monet-chat-api"
+main = "workers.js"
+compatibility_date = "2025-11-15"
+[[triggers]]
+cron = "0 * * * *"
